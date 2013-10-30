@@ -1,0 +1,157 @@
+{
+  "objects": [
+    {
+      "id": "Default",
+      "role": "role-pipe-demo",
+      "resourceRole": "role-pipe-demo-resource",
+      "failureAndRerunMode": "cascade",
+      "scheduleType": "cron",
+      "onFail": { "ref": "FailureNotify" },
+      "s3_run": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}",
+      "s3n_run": "s3n://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}",
+      "s3_bin": "s3://swipely-reinvent-demo/bin",
+      "s3n_bin": "s3n://swipely-reinvent-demo/bin",
+      "s3_data": "s3://swipely-reinvent-demo/data"
+    },
+
+    {
+      "id": "Nightly",
+      "type": "Schedule",
+      "startDateTime": "<%= start_date_time %>",
+      "period": "24 hours"
+    },
+
+    {
+      "id": "SuccessNotify",
+      "type": "SnsAlarm",
+      "topicArn": "arn:aws:sns:us-west-2:969468027173:topic-pipe-demo",
+      "subject": "[SalesByDay] SUCCESS: pipeline step #{node.name}",
+      "message": "SalesByDay pipeline step #{node.name} SUCCEDED.\n\nScheduled start: #{node.@scheduledStartTime}\nActual start: #{node.@actualStartTime}\nActual end:\n#{node.@actualEndTime}"
+    },
+
+    {
+      "id": "FailureNotify",
+      "type": "SnsAlarm",
+      "topicArn": "arn:aws:sns:us-west-2:969468027173:topic-pipe-demo",
+      "subject": "[SalesByDay] FAILURE: pipeline step #{node.name}",
+      "message": "SalesByDay pipeline step FAILED #{node.name}\n\nScheduled start: #{node.@scheduledStartTime}\nError message:\n#{node.errorMessage}\nError stack trace:\n#{node.errorStackTrace}"
+    },
+
+    {
+      "id": "SalesByDayEC2Resource",
+      "type": "Ec2Resource",
+      "instanceType": "m1.large",
+      "schedule": { "ref": "Nightly" },
+      "logUri": "#{s3_run}/log/SalesByDayEC2Resource",
+      "terminateAfter": "6 hours",
+      "keyPair": "key-pipe-demo",
+      "securityGroups": [ "secgrp-pipe-demo" ]
+    },
+
+    {
+      "id": "SalesByDayEMRCluster",
+      "type": "EmrCluster",
+      "masterInstanceType": "m1.large",
+      "taskInstanceType": "m1.large",
+      "coreInstanceType": "m1.large",
+      "coreInstanceCount": "4",
+      "terminateAfter": "6 hours",
+      "schedule": { "ref": "Nightly" },
+      "enableDebugging": "true",
+      "installHive": "0.11.0.1",
+      "bootstrapAction": "#{s3_bin}/bootstrap_emr.sh",
+      "emrLogUri": "#{s3_run}/log/SalesByDayEMRLogs",
+      "logUri": "#{s3_run}/log/SalesByDayEMRCluster"
+    },
+
+    {
+      "id": "S3SalesByDaySteps",
+      "type": "S3DataNode",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "directoryPath": "#{s3_bin}"
+    },
+
+    {
+      "id": "S3IndexedSwipes",
+      "type": "S3DataNode",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "directoryPath": "#{s3_run}"
+    },
+
+    {
+      "id": "S3StoreDaySettlements",
+      "type": "S3DataNode",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "filePath": "#{s3_data}/settlements-small.csv"
+    },
+
+    {
+      "id": "S3SalesByDay",
+      "type": "S3DataNode",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "directoryPath": "#{s3_run}/sales_by_day"
+    },
+
+    {
+      "id": "BootstrapEnvironment",
+      "type": "ShellCommandActivity",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "runsOn": { "ref": "SalesByDayEC2Resource" },
+      "scriptUri": "#{s3_bin}/bootstrap_ec2.sh"
+    },
+
+    {
+      "id": "GenerateIndexedSwipes",
+      "type": "ShellCommandActivity",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "runsOn": { "ref": "SalesByDayEC2Resource" },
+      "dependsOn": { "ref": "BootstrapEnvironment" },
+      "input": [ { "ref": "S3StoreDaySettlements" }, { "ref": "S3SalesByDaySteps" } ],
+      "output": { "ref": "S3IndexedSwipes" },
+      "stage": "true",
+      "command": "sort ${INPUT1_STAGING_DIR}/* | ruby ${INPUT2_STAGING_DIR}/swipe_indexer.rb > ${OUTPUT1_STAGING_DIR}/indexed_swipes.csv"
+    },
+
+    {
+      "id": "GenerateSalesByDay",
+      "type": "EmrActivity",
+      "onFail": { "ref": "FailureNotify" },
+      "schedule": { "ref": "Nightly" },
+      "runsOn": { "ref": "SalesByDayEMRCluster" },
+      "dependsOn": { "ref": "GenerateIndexedSwipes" },
+      "input": { "ref": "S3IndexedSwipes" },
+      "output": { "ref": "S3SalesByDay" },
+      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,#{s3n_run}/indexed_swipes.csv,-output,#{s3_run}/sales_by_day,-mapper,#{s3n_bin}/sales_by_day_mapper.rb,-reducer,#{s3n_bin}/sales_by_day_reducer.rb"
+    },
+
+    {
+      "id": "AppSalesByDayInsert",
+      "type": "MySqlDataNode",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "table": "sales_by_day",
+      "username": "#{db_username}",
+      "*password": "#{db_password}",
+      "connectionString": "jdbc:mysql://#{db_host}:3306/#{db_database}",
+      "insertQuery": "INSERT INTO #{table} (store_pretty_url, day, total_sales, total_visits, total_new_visits, total_repeat_visits, total_new_sales, total_repeat_sales, peers_with_sales, created_at, updated_at) VALUES (?, ?, ? / 100, ?, ?, ?, ? / 100, ? / 100, ?, '#{format(@scheduledStartTime,'YYYY-MM-dd HH:mm:ss')}', '#{format(@scheduledStartTime,'YYYY-MM-dd HH:mm:ss')}') ON DUPLICATE KEY UPDATE total_sales = VALUES(total_sales), total_visits = VALUES(total_visits), total_new_visits = VALUES(total_new_visits), total_repeat_visits = VALUES(total_repeat_visits), total_new_sales = VALUES(total_new_sales), total_repeat_sales = VALUES(total_repeat_sales), peers_with_sales = VALUES(peers_with_sales), updated_at = '#{format(@scheduledStartTime,'YYYY-MM-dd HH:mm:ss')}';"
+    },
+
+    {
+      "id": "CopySalesByDayToAppDB",
+      "type": "CopyActivity",
+      "schedule": { "ref": "Nightly" },
+      "onSuccess": { "ref": "SuccessNotify" },
+      "onFail": { "ref": "FailureNotify" },
+      "runsOn": { "ref": "SalesByDayEC2Resource" },
+      "dependsOn": { "ref": "GenerateSalesByDay" },
+      "input": { "ref": "S3SalesByDay" },
+      "output": { "ref": "AppSalesByDayInsert" }
+    }
+  ]
+}
