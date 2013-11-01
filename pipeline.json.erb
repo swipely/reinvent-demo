@@ -11,14 +11,15 @@
       "s3n_run": "s3n://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}",
       "s3_bin": "s3://swipely-reinvent-demo/bin",
       "s3n_bin": "s3n://swipely-reinvent-demo/bin",
-      "s3_data": "s3://swipely-reinvent-demo/data"
+      "s3_data": "s3://swipely-reinvent-demo/data",
+      "s3n_data": "s3n://swipely-reinvent-demo/data"
     },
 
     {
       "id": "Nightly",
       "type": "Schedule",
       "startDateTime": "<%= start_date_time %>",
-      "period": "24 hours"
+      "period": "<%= period %>"
     },
 
     {
@@ -65,27 +66,11 @@
     },
 
     {
-      "id": "S3SalesByDaySteps",
+      "id": "S3Settlements",
       "type": "S3DataNode",
       "schedule": { "ref": "Nightly" },
       "onFail": { "ref": "FailureNotify" },
-      "directoryPath": "#{s3_bin}"
-    },
-
-    {
-      "id": "S3IndexedSwipes",
-      "type": "S3DataNode",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "directoryPath": "#{s3_run}"
-    },
-
-    {
-      "id": "S3StoreDaySettlements",
-      "type": "S3DataNode",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "filePath": "#{s3_data}/settlements-small.csv"
+      "filePath": "#{s3_data}/settlements.csv"
     },
 
     {
@@ -106,40 +91,14 @@
     },
 
     {
-      "id": "GenerateIndexedSwipes",
-      "type": "ShellCommandActivity",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "runsOn": { "ref": "SalesByDayEC2Resource" },
-      "dependsOn": { "ref": "BootstrapEnvironment" },
-      "input": [ { "ref": "S3StoreDaySettlements" }, { "ref": "S3SalesByDaySteps" } ],
-      "output": { "ref": "S3IndexedSwipes" },
-      "stage": "true",
-      "command": "sort ${INPUT1_STAGING_DIR}/* | ruby ${INPUT2_STAGING_DIR}/swipe_indexer.rb > ${OUTPUT1_STAGING_DIR}/indexed_swipes.csv"
-    },
-
-    {
       "id": "GenerateSalesByDay",
       "type": "EmrActivity",
       "onFail": { "ref": "FailureNotify" },
       "schedule": { "ref": "Nightly" },
       "runsOn": { "ref": "SalesByDayEMRCluster" },
-      "dependsOn": { "ref": "GenerateIndexedSwipes" },
-      "input": { "ref": "S3IndexedSwipes" },
+      "input": { "ref": "S3Settlements" },
       "output": { "ref": "S3SalesByDay" },
-      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,#{s3n_run}/indexed_swipes.csv,-output,#{s3_run}/sales_by_day,-mapper,#{s3n_bin}/sales_by_day_mapper.rb,-reducer,#{s3n_bin}/sales_by_day_reducer.rb"
-    },
-
-    {
-      "id": "AppSalesByDayInsert",
-      "type": "MySqlDataNode",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "table": "sales_by_day",
-      "username": "#{db_username}",
-      "*password": "#{db_password}",
-      "connectionString": "jdbc:mysql://#{db_host}:3306/#{db_database}",
-      "insertQuery": "INSERT INTO #{table} (store_pretty_url, day, total_sales, total_visits, total_new_visits, total_repeat_visits, total_new_sales, total_repeat_sales, peers_with_sales, created_at, updated_at) VALUES (?, ?, ? / 100, ?, ?, ?, ? / 100, ? / 100, ?, '#{format(@scheduledStartTime,'YYYY-MM-dd HH:mm:ss')}', '#{format(@scheduledStartTime,'YYYY-MM-dd HH:mm:ss')}') ON DUPLICATE KEY UPDATE total_sales = VALUES(total_sales), total_visits = VALUES(total_visits), total_new_visits = VALUES(total_new_visits), total_repeat_visits = VALUES(total_repeat_visits), total_new_sales = VALUES(total_new_sales), total_repeat_sales = VALUES(total_repeat_sales), peers_with_sales = VALUES(peers_with_sales), updated_at = '#{format(@scheduledStartTime,'YYYY-MM-dd HH:mm:ss')}';"
+      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,#{s3n_data}/settlements.csv,-output,#{s3_run}/sales_by_day,-mapper,#{s3n_bin}/sales_by_day_mapper.rb,-reducer,#{s3n_bin}/sales_by_day_reducer.rb"
     },
 
     {
@@ -149,9 +108,21 @@
       "onSuccess": { "ref": "SuccessNotify" },
       "onFail": { "ref": "FailureNotify" },
       "runsOn": { "ref": "SalesByDayEC2Resource" },
-      "dependsOn": { "ref": "GenerateSalesByDay" },
+      "dependsOn": { "ref": "BootstrapEnvironment" },
       "input": { "ref": "S3SalesByDay" },
-      "output": { "ref": "AppSalesByDayInsert" }
+      "output": { "ref": "InsertSalesByDay" }
+    },
+    
+    {
+      "id": "InsertSalesByDay",
+      "type": "MySqlDataNode",
+      "schedule": { "ref": "Nightly" },
+      "onFail": { "ref": "FailureNotify" },
+      "table": "sales_by_day",
+      "username": "<%= db_username %>",
+      "*password": "<%= db_password %>",
+      "connectionString": "jdbc:mysql://<%= db_host %>:3306/<%= db_database %>",
+      "insertQuery": "INSERT INTO #{table} (store, day, total_sales) VALUES (?, ?, ? / 100);"
     }
   ]
 }
