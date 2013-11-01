@@ -1,6 +1,8 @@
 require 'erb'
 require 'rake'
 
+require './lib/deploy'
+
 def period
   '12 hours'
 end
@@ -32,5 +34,5 @@ task :dist do
 end
 
 task :deploy => [:dist] do
-  PipelineDeployer.deploy_pipeline("pipe-reinvent-demo", pipeline_json)
+  Deployer.deploy_pipeline("pipe-reinvent-demo", pipeline_json)
 end

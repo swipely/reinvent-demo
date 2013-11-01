@@ -6,10 +6,9 @@ class Deployer
   @data_pipelines = Fog::AWS::DataPipeline.new
 
   def self.deploy_pipeline(pipeline_name, definition)
-    # Get a list of all existing Heatmap pipelines
-    pipeline_ids = []
-    #pipeline_ids = existing_pipelines(pipeline_name)
-    #@log.info("#{pipeline_ids.count} existing pipelines: #{pipeline_ids}")
+    pipeline_ids = existing_pipelines(pipeline_name)
+    @log.info("#{pipeline_ids.count} existing pipelines: #{pipeline_ids}")
+    
 
     # Create new pipeline
     created_pipeline_id = create_pipeline(pipeline_name, definition)

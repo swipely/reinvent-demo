@@ -12,10 +12,10 @@ GEM
       descendants_tracker (~> 0.0.1)
     descendants_tracker (0.0.3)
     equalizer (0.0.7)
-    excon (0.27.6)
-    fog (1.17.0)
+    excon (0.28.0)
+    fog (1.18.0)
       builder
-      excon (~> 0.27.0)
+      excon (~> 0.28.0)
       formatador (~> 0.2.0)
       mime-types
       multi_json (~> 1.0)
@@ -46,6 +46,9 @@ GEM
     ruby-graphviz (1.0.9)
     ruby-hmac (0.4.0)
     slop (3.4.5)
+    unf (0.1.1)
+      unf_ext
+    unf_ext (0.0.6)
     virtus (1.0.0)
       axiom-types (~> 0.0.5)
       coercible (~> 0.2)
@@ -60,3 +63,4 @@ DEPENDENCIES
   pipely
   pry
   rake
+  unf

@@ -6,13 +6,7 @@
       "resourceRole": "role-pipe-demo-resource",
       "failureAndRerunMode": "cascade",
       "scheduleType": "cron",
-      "onFail": { "ref": "FailureNotify" },
-      "s3_run": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}",
-      "s3n_run": "s3n://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}",
-      "s3_bin": "s3://swipely-reinvent-demo/bin",
-      "s3n_bin": "s3n://swipely-reinvent-demo/bin",
-      "s3_data": "s3://swipely-reinvent-demo/data",
-      "s3n_data": "s3n://swipely-reinvent-demo/data"
+      "onFail": { "ref": "FailureNotify" }
     },
 
     {
@@ -43,7 +37,7 @@
       "type": "Ec2Resource",
       "instanceType": "m1.large",
       "schedule": { "ref": "Nightly" },
-      "logUri": "#{s3_run}/log/SalesByDayEC2Resource",
+      "logUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEC2Resource",
       "terminateAfter": "6 hours",
       "keyPair": "key-pipe-demo",
       "securityGroups": [ "secgrp-pipe-demo" ]
@@ -60,9 +54,9 @@
       "schedule": { "ref": "Nightly" },
       "enableDebugging": "true",
       "installHive": "0.11.0.1",
-      "bootstrapAction": "#{s3_bin}/bootstrap_emr.sh",
-      "emrLogUri": "#{s3_run}/log/SalesByDayEMRLogs",
-      "logUri": "#{s3_run}/log/SalesByDayEMRCluster"
+      "bootstrapAction": "s3://swipely-reinvent-demo/bin/bootstrap_emr.sh",
+      "emrLogUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEMRLogs",
+      "logUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEMRCluster"
     },
 
     {
@@ -70,7 +64,7 @@
       "type": "S3DataNode",
       "schedule": { "ref": "Nightly" },
       "onFail": { "ref": "FailureNotify" },
-      "filePath": "#{s3_data}/settlements.csv"
+      "filePath": "s3://swipely-reinvent-demo/data/settlements.csv"
     },
 
     {
@@ -78,7 +72,7 @@
       "type": "S3DataNode",
       "schedule": { "ref": "Nightly" },
       "onFail": { "ref": "FailureNotify" },
-      "directoryPath": "#{s3_run}/sales_by_day"
+      "directoryPath": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/sales_by_day"
     },
 
     {
@@ -87,7 +81,7 @@
       "schedule": { "ref": "Nightly" },
       "onFail": { "ref": "FailureNotify" },
       "runsOn": { "ref": "SalesByDayEC2Resource" },
-      "scriptUri": "#{s3_bin}/bootstrap_ec2.sh"
+      "scriptUri": "s3://swipely-reinvent-demo/bin/bootstrap_ec2.sh"
     },
 
     {
@@ -98,7 +92,7 @@
       "runsOn": { "ref": "SalesByDayEMRCluster" },
       "input": { "ref": "S3Settlements" },
       "output": { "ref": "S3SalesByDay" },
-      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,#{s3n_data}/settlements.csv,-output,#{s3_run}/sales_by_day,-mapper,#{s3n_bin}/sales_by_day_mapper.rb,-reducer,#{s3n_bin}/sales_by_day_reducer.rb"
+      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,s3n://swipely-reinvent-demo/data/settlements.csv,-output,s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/sales_by_day,-mapper,s3n://swipely-reinvent-demo/bin/sales_by_day_mapper.rb,-reducer,s3n://swipely-reinvent-demo/bin/sales_by_day_reducer.rb"
     },
 
     {
