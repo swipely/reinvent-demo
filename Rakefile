@@ -34,5 +34,6 @@ task :dist do
 end
 
 task :deploy => [:dist] do
-  Deployer.deploy_pipeline("pipe-reinvent-demo", pipeline_json)
+  S3Deployer.copy_dir('bin', 'swipely-reinvent-demo', 'bin/')
+  PipelineDeployer.deploy_pipeline("pipe-reinvent-demo", pipeline_json)
 end
