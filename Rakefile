@@ -1,39 +1,40 @@
 require 'erb'
 require 'rake'
 
-require './lib/deploy'
+require './lib/conf'
+require './lib/deployer'
 
-def period
-  '12 hours'
-end
+@log = Logger.new(STDOUT)
 
-class JsonBinding < OpenStruct
-  def start_date_time
-    start_time = Time.now.utc - 12 * 60 * 60
-    hour = (start_time.hour < 12) ? '00' : '12'
-    start_time.strftime("%Y-%m-%dT#{hour}:00:01")
-  end
-
-  def get_binding
-    binding
-  end
+def conf
+  @conf ||= Conf.new(YAML.load_file('config.yml'))
 end
 
 def pipeline_json
-  json_binding = JsonBinding.new(YAML.load_file('config.yml'))
-  ERB.new(IO.read("pipeline.json.erb")).result(json_binding.get_binding)
+  @pipeline_json ||= ERB.new(IO.read("pipeline.json.erb")).result(conf.get_binding)
 end
 
 task :clean do
-  rm_rf 'dist'
+  @log.info('deleting dist')
+  FileUtils.rm_rf('dist')
+  @log.info('deleting s3 bin/')
+  Deployer.delete_s3_dir('swipely-reinvent-demo', 'bin/')
+  @log.info('deleting s3 run/')
+  Deployer.delete_s3_dir('swipely-reinvent-demo', 'run/')
+  @log.info('truncating table')
+  Deployer.truncate_table(conf.marshal_dump, 'sales_by_day')
 end
 
 task :dist do
-  mkdir_p 'dist'
+  @log.info("making dist/")
+  FileUtils.mkdir_p('dist')
+  @log.info("writing dist/pipeline.json")
   IO.write("dist/pipeline.json", pipeline_json)
 end
 
-task :deploy => [:dist] do
-  S3Deployer.copy_dir('bin', 'swipely-reinvent-demo', 'bin/')
-  PipelineDeployer.deploy_pipeline("pipe-reinvent-demo", pipeline_json)
+task :deploy => [:clean, :dist] do
+  @log.info('copying bin/ to s3')
+  Deployer.copy_dir_to_s3('bin', 'swipely-reinvent-demo', 'bin/')
+  @log.info('deploying pipeline')
+  Deployer.deploy_pipeline('pipe-reinvent-demo', pipeline_json)
 end

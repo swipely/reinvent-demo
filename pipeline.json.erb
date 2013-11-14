@@ -1,11 +1,85 @@
 {
   "objects": [
     {
+      "id": "S3Transactions",
+      "type": "S3DataNode",
+      "filePath": "s3://swipely-reinvent-demo/data/transactions.csv"
+    },
+
+    {
+      "id": "S3SalesByDay",
+      "type": "S3DataNode",
+      "directoryPath": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/sales_by_day"
+    },
+
+    {
+      "id": "RDSSalesByDay",
+      "type": "MySqlDataNode",
+      "table": "sales_by_day",
+      "username": "<%= username %>",
+      "*password": "<%= password %>",
+      "connectionString": "jdbc:mysql://<%= host %>:3306/<%= database %>",
+      "insertQuery": "INSERT INTO #{table} (store, day, total_sales) VALUES (?, ?, ? / 100);"
+    },
+
+    {
+      "id": "GenerateSalesByDay",
+      "type": "EmrActivity",
+      "runsOn": { "ref": "SalesByDayEMRCluster" },
+      "input": { "ref": "S3Transactions" },
+      "output": { "ref": "S3SalesByDay" },
+      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,s3n://swipely-reinvent-demo/data/transactions.csv,-output,s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/sales_by_day,-mapper,s3n://swipely-reinvent-demo/bin/sales_by_day_mapper.rb,-reducer,s3n://swipely-reinvent-demo/bin/sales_by_day_reducer.rb"
+    },
+
+    {
+      "id": "CopySalesByDayToAppDB",
+      "type": "CopyActivity",
+      "runsOn": { "ref": "SalesByDayEC2Resource" },
+      "dependsOn": { "ref": "BootstrapEnvironment" },
+      "input": { "ref": "S3SalesByDay" },
+      "output": { "ref": "RDSSalesByDay" }
+    },
+    
+    {
+      "id": "SalesByDayEMRCluster",
+      "type": "EmrCluster",
+      "masterInstanceType": "m1.large",
+      "taskInstanceType": "m1.large",
+      "coreInstanceType": "m1.large",
+      "coreInstanceCount": "4",
+      "terminateAfter": "6 hours",
+      "enableDebugging": "true",
+      "installHive": "0.11.0.1",
+      "bootstrapAction": "s3://swipely-reinvent-demo/bin/bootstrap_emr.sh",
+      "emrLogUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEMRLogs",
+      "logUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEMRCluster"
+    },
+
+    {
+      "id": "SalesByDayEC2Resource",
+      "type": "Ec2Resource",
+      "instanceType": "m1.large",
+      "logUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEC2Resource",
+      "terminateAfter": "6 hours",
+      "keyPair": "key-pipe-demo",
+      "securityGroups": [ "secgrp-pipe-demo" ]
+    },
+
+    {
+      "id": "BootstrapEnvironment",
+      "type": "ShellCommandActivity",
+      "runsOn": { "ref": "SalesByDayEC2Resource" },
+      "scriptUri": "s3://swipely-reinvent-demo/bin/bootstrap_ec2.sh"
+    },
+
+    {
       "id": "Default",
       "role": "role-pipe-demo",
       "resourceRole": "role-pipe-demo-resource",
       "failureAndRerunMode": "cascade",
       "scheduleType": "cron",
+      "schedule": { "ref": "Nightly" },
+      "onSuccess": { "ref": "SuccessNotify" },
       "onFail": { "ref": "FailureNotify" }
     },
 
@@ -30,93 +104,6 @@
       "topicArn": "arn:aws:sns:us-west-2:969468027173:topic-pipe-demo",
       "subject": "[SalesByDay] FAILURE: pipeline step #{node.name}",
       "message": "SalesByDay pipeline step FAILED #{node.name}\n\nScheduled start: #{node.@scheduledStartTime}\nError message:\n#{node.errorMessage}\nError stack trace:\n#{node.errorStackTrace}"
-    },
-
-    {
-      "id": "SalesByDayEC2Resource",
-      "type": "Ec2Resource",
-      "instanceType": "m1.large",
-      "schedule": { "ref": "Nightly" },
-      "logUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEC2Resource",
-      "terminateAfter": "6 hours",
-      "keyPair": "key-pipe-demo",
-      "securityGroups": [ "secgrp-pipe-demo" ]
-    },
-
-    {
-      "id": "SalesByDayEMRCluster",
-      "type": "EmrCluster",
-      "masterInstanceType": "m1.large",
-      "taskInstanceType": "m1.large",
-      "coreInstanceType": "m1.large",
-      "coreInstanceCount": "4",
-      "terminateAfter": "6 hours",
-      "schedule": { "ref": "Nightly" },
-      "enableDebugging": "true",
-      "installHive": "0.11.0.1",
-      "bootstrapAction": "s3://swipely-reinvent-demo/bin/bootstrap_emr.sh",
-      "emrLogUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEMRLogs",
-      "logUri": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/log/SalesByDayEMRCluster"
-    },
-
-    {
-      "id": "S3Settlements",
-      "type": "S3DataNode",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "filePath": "s3://swipely-reinvent-demo/data/settlements.csv"
-    },
-
-    {
-      "id": "S3SalesByDay",
-      "type": "S3DataNode",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "directoryPath": "s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/sales_by_day"
-    },
-
-    {
-      "id": "BootstrapEnvironment",
-      "type": "ShellCommandActivity",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "runsOn": { "ref": "SalesByDayEC2Resource" },
-      "scriptUri": "s3://swipely-reinvent-demo/bin/bootstrap_ec2.sh"
-    },
-
-    {
-      "id": "GenerateSalesByDay",
-      "type": "EmrActivity",
-      "onFail": { "ref": "FailureNotify" },
-      "schedule": { "ref": "Nightly" },
-      "runsOn": { "ref": "SalesByDayEMRCluster" },
-      "input": { "ref": "S3Settlements" },
-      "output": { "ref": "S3SalesByDay" },
-      "step": "/home/hadoop/contrib/streaming/hadoop-streaming.jar,-input,s3n://swipely-reinvent-demo/data/settlements.csv,-output,s3://swipely-reinvent-demo/run/#{format(@scheduledStartTime,'YYYY-MM-dd_HHmmss')}/sales_by_day,-mapper,s3n://swipely-reinvent-demo/bin/sales_by_day_mapper.rb,-reducer,s3n://swipely-reinvent-demo/bin/sales_by_day_reducer.rb"
-    },
-
-    {
-      "id": "CopySalesByDayToAppDB",
-      "type": "CopyActivity",
-      "schedule": { "ref": "Nightly" },
-      "onSuccess": { "ref": "SuccessNotify" },
-      "onFail": { "ref": "FailureNotify" },
-      "runsOn": { "ref": "SalesByDayEC2Resource" },
-      "dependsOn": { "ref": "BootstrapEnvironment" },
-      "input": { "ref": "S3SalesByDay" },
-      "output": { "ref": "InsertSalesByDay" }
-    },
-    
-    {
-      "id": "InsertSalesByDay",
-      "type": "MySqlDataNode",
-      "schedule": { "ref": "Nightly" },
-      "onFail": { "ref": "FailureNotify" },
-      "table": "sales_by_day",
-      "username": "<%= db_username %>",
-      "*password": "<%= db_password %>",
-      "connectionString": "jdbc:mysql://<%= db_host %>:3306/<%= db_database %>",
-      "insertQuery": "INSERT INTO #{table} (store, day, total_sales) VALUES (?, ?, ? / 100);"
     }
   ]
 }
