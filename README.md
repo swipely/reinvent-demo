@@ -6,7 +6,7 @@ Demo for Swipely's Data Pipeline talk
 Setup
 -----
 
-* Settlements data file saved to s3://swipely-reinvent-demo/data/settlements.csv with form `card_token, merchant_pretty_url, occurred_at, price, authorization_id`:
+* Settlements data file saved to s3://swipely-reinvent-demo/data/settlements.csv with form `card_token, store, occurred_at, price, authorization_id`:
 
     ```
     abc01,merchant-20,2012-06-08 00:59:25,1495,123
