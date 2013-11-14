@@ -2,9 +2,9 @@
 
 class SalesByDayMapper
   def map(line)
-    card_token, merchant_pretty_url, occurred_at, price, authorization_id = line.strip.split(',')
-    time_to_day = "#{occurred_at[0..9]}"
-    key = "#{merchant_pretty_url},#{time_to_day}"
+    card_token, store, occurred_at, price, authorization_id = line.strip.split(',')
+    day = "#{occurred_at[0..9]}"
+    key = "#{store},#{day}"
     "#{key}\t#{price}"
   end
 end
